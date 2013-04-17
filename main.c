@@ -36,7 +36,8 @@ short stop = 0;
 void done (int ret) {
   int i = 0;
   (void)tcsetattr(STDIN_FILENO, TCSAFLUSH, &oterm);
-  for (i = 0; i < fcount; i++) fclose(fpa[i]);
+  for (i = 0; i < fcount; i++)
+    if (fpa[i] != NULL) fclose(fpa[i]);
   if (ret == 0)
     printf("\n\x1b[0m  \x1b[37m\x1b[1m(O ___ \x1b[37mO)\n         \x1b[34m'\x1b[37m\x1b[0m \n");
   else if (ret == 1)
@@ -144,6 +145,8 @@ int main (int argc, char* argv[]) {
   int f = 0;
   short flag = 0;
   short cmd = 0;
+  short first = 0;
+  short print = 0;
 
   int ihold = 0;
   double dhold = 0;
@@ -171,6 +174,7 @@ int main (int argc, char* argv[]) {
   short _fdesc = 0;
   short _quiet = 0;
   short _verb = 0; 
+  short _xclde = 0;
  
   int _maxunch = 0;
   int _pid = 0;
@@ -291,6 +295,8 @@ int main (int argc, char* argv[]) {
             _quiet = 1;
           else if (strcmp(aptr, "v") == 0 || strcmp(aptr, "--verbose") == 0)
             _verb = 1;
+          else if (strcmp(aptr, "x") == 0 || strcmp(aptr, "--regex-exclude") == 0)
+            _xclde = 1;
         }
         if (wcmd) break;
       }
@@ -315,18 +321,32 @@ int main (int argc, char* argv[]) {
 
     i = 1;
     ihold = 0;
+    flag = 0;
     if (_bytec > 0) {
       if (_gpos) fseek(fpa[f], _bytec, SEEK_SET);
       else fseek(fpa[f], _bytec * -1, SEEK_END);  
     } else {
-      while (ihold <= _linec) {
-        if (_gpos) fseek(fpa[f], i++, SEEK_SET);
-        else fseek(fpa[f], i++ * -1, SEEK_END);
-        if (!(*csingle = (char)fgetc(fpa[f]))) done(1);
-        else if (*csingle == '\n') ihold++;
+      if (_gpos) while (ihold < _linec) {
+        if (!(csingle[0] = (char)fgetc(fpa[f]))) flag = 1;
+        else if (csingle[0] == '\n') ihold++;
+        if (flag) {
+          fseek(fpa[f], 0, SEEK_END);
+          break;
+        }
+      } else while (ihold <= _linec) {
+        fseek(fpa[f], i++ * -1, SEEK_END);
+        if (ftell(fpa[f]) == 0) flag = 1;
+        if (!(csingle[0] = (char)fgetc(fpa[f]))) done(1);
+        else if (csingle[0] == '\n') ihold++;
+        if (flag) {
+          fseek(fpa[f], 0, SEEK_SET);
+          break;
+        }
       }
     }
     fpua[f] = 0;
+
+    lfile = f;
   }
 
   if (_rhswitch) highlight = hswitch;
@@ -347,18 +367,7 @@ int main (int argc, char* argv[]) {
     printf("  \x1b[30m\x1b[1mProvide target file path!\x1b[0m \n");
     done(1);
   }
-/*
-  if (_fdesc) {
-    if ((pfdesc = open(path, O_RDONLY)) == -1) done(1);
-    if ((fp = fdopen(pfdesc, "r")) == NULL) {
-      close(pfdesc);
-      done(1);
-    }
-  } else if ((fp = fopen(path, "r")) == NULL) {
-    printf("  \x1b[30m\x1b[1mProvided file path sucks!\x1b[0m \n");
-    done(1);
-  }
-/**/
+
   gettimeofday(&btime, NULL);
   gettimeofday(&dtime, NULL);
 
@@ -382,33 +391,12 @@ int main (int argc, char* argv[]) {
   ctime.tv_sec = 1;
   ctime.tv_usec = 1;
 
-//  ihold = 0;
-//  while (fread((void *)csingle, 1, 1, fp)) if (*csingle == '\n') ihold++;
-  
-//  fseek(fp, 0, SEEK_SET);
-  
-//  while (ihold > _linec && fread((void *)&csingle, 1, 1, fp)) if (*csingle == '\n') ihold--;
-/*
-  i = 1;
-  ihold = 0;
-
-  if (_bytec > 0) {
-    if (_gpos) fseek(fp, _bytec, SEEK_SET);
-    else fseek(fp, _bytec * -1, SEEK_END);  
-  } else {
-    while (ihold <= _linec) {
-      if (_gpos) fseek(fp, i++, SEEK_SET);
-      else fseek(fp, i++ * -1, SEEK_END);
-      if (!(*csingle = (char)fgetc(fp))) done(1);
-      else if (*csingle == '\n') ihold++;
-    }
-  }
-/**/
   if (_dbug > 0)
     printf("\x1b[33m\x1b[1m--[\x1b[37m Debug \x1b[33m] Initialized. \n");
 
   i = 0;
   ihold = 0;
+  first = fcount > 1 ? 1 : 0;
   while (1) {
     while (stop) {
       printf("  \x1b[0m\x1b[36m\x1b[2m  z z z \x1b[0m  \n");
@@ -416,12 +404,7 @@ int main (int argc, char* argv[]) {
     }
     gettimeofday(&ttime, NULL);
 
-    if (_pid) {
-//      pidres = waitpid(_pid, &ihold, WNOHANG);
-//      if (pidres == -1) done(1);
-//      else if (pidres != 0) done(0);
-      if (kill(_pid, 0)) done(0);
-    }
+    if (_pid && kill(_pid, 0)) done(0);
 
     if (ioctl(nstdin, FIONREAD, &ihold) < 0)
       printf("  Stdin read error! %s \n", strerror(errno));
@@ -448,6 +431,8 @@ int main (int argc, char* argv[]) {
           _dbug = _dbug ? 0 : 1;
         else if (strcmp(cbuffer, ":w") == 0 || strcmp(cbuffer, ":regex-highlight-switch") == 0)
           _rhswitch = _rhswitch ? 0 : 1;
+        else if (strcmp(cbuffer, ":x") == 0 || strcmp(cbuffer, ":regex-exclude") == 0)
+          _xclde = _xclde ? 0 : 1;
       } else {
         rmake = regcomp(&rep, cbuffer, 0);
         if (rmake && _dbug)
@@ -463,41 +448,46 @@ int main (int argc, char* argv[]) {
       flag = 1;
       dtime = ttime;
       for (f = 0; f < fcount; f++) {
-      
       fp = fpa[f];
       if (fp == NULL) continue;
 
       while (fgets(buffer, _bsize, fp) != NULL) {
-        if (!_quiet && !_verb && lfile != f) printf("\x1b[0m\n\x1b[32m<<-\x1b[37m\x1b[1m %s \x1b[0m\x1b[32m->>\n", fppa[f]);
-        lfile = f;
+        print = 0;
         fpua[f] = 0;
-        flag = 0;
         btime = ttime;
         ihold = slen(buffer);
-        if (!_quiet && _verb) printf("\x1b[0m\x1b[32m<<-\x1b[37m\x1b[1m %s \x1b[0m\x1b[32m->> ", fppa[f]);
         for (i = 0; i < ihold; i++)
           if (buffer[i] == '\n' || buffer[i] == '\r') buffer[i] = '\0';
-          printf("\x1b[0m");
-          if (rmake == 0) {
-            if (_rselect) {
-              rmatch = regexec(&rep, buffer, 0, NULL, 0);
-              if (!rmatch) printf("%s", highlight);
-              if (!rmatch || _rinc) printf("%s\n", buffer);
-            } else {
-              rmatch = regexec(&rep, buffer, REGEXP_MATCH_LIMIT, rmatchbox, 0);
-              if (!rmatch) {
-                printf(
-                  "%.*s%s%.*s\x1b[0m%.*s\n",
-                  rmatchbox[0].rm_so, buffer,
-                  highlight,
-                  rmatchbox[0].rm_eo - rmatchbox[0].rm_so, buffer + rmatchbox[0].rm_so,
-                  _bsize - rmatchbox[0].rm_eo, buffer + rmatchbox[0].rm_eo
-                );
-              } else if (_rinc) printf("%s\n", buffer);
-            }
-          } else printf("%s\n", buffer);
+        flag = 0;
+        if (rmake == 0) {
+          if (_rselect) {
+            rmatch = regexec(&rep, buffer, 0, NULL, 0);
+            if (!rmatch) {
+              if (!_xclde) print = 1;
+            } else if (_rinc || _xclde) print = 1;
+          } else {
+            rmatch = regexec(&rep, buffer, REGEXP_MATCH_LIMIT, rmatchbox, 0);
+            if (!rmatch && !_xclde) print = 1;
+            else if (_rinc || _xclde) print = 1;
+          }
+        } else print = 1;
+        if (print) {
+          if (!_quiet && !_verb && (lfile != f || first)) printf("\x1b[0m\n\x1b[32m<<-\x1b[37m\x1b[1m %s \x1b[0m\x1b[32m->>\x1b[0m\n", fppa[f]);
+          else if (!_quiet && _verb) printf("\x1b[0m\x1b[32m<<-\x1b[37m\x1b[1m %s \x1b[0m\x1b[32m->>\x1b[0m ", fppa[f]);
+          if (!rmatch)
+            if (_rselect) printf("%s%s\x1b[0m\n", highlight, buffer);
+            else printf(
+              "%.*s%s%.*s\x1b[0m%.*s\x1b[0m\n",
+              rmatchbox[0].rm_so, buffer,
+              highlight,
+              rmatchbox[0].rm_eo - rmatchbox[0].rm_so, buffer + rmatchbox[0].rm_so,
+              _bsize - rmatchbox[0].rm_eo, buffer + rmatchbox[0].rm_eo
+            );
+          else printf("%s\x1b[0m\n", buffer);
+          lfile = f;
+          first = 0;
+          if (_dtime > 0) break;
         }
-        if (_dtime > 0) break;
       }
       if (flag > 0) {
         fpua[f]++;
@@ -518,6 +508,8 @@ int main (int argc, char* argv[]) {
         }
       }
 
+      }
+
     }
 
     if (flag > 0) {
@@ -527,7 +519,6 @@ int main (int argc, char* argv[]) {
       }
     }
     flag = 0;
-
     usleep(__stime);
   }
 
@@ -535,4 +526,3 @@ int main (int argc, char* argv[]) {
 
   return 0;
 }
-
